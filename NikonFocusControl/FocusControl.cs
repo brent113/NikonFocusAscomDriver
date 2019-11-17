@@ -41,7 +41,8 @@ namespace NikonFocusControl
             {
                 // Create manager object - make sure you have the correct MD3 file for your Nikon DSLR (see https://sdk.nikonimaging.com/apply/)
                 if (manager != null) try { manager.Shutdown(); } catch { }
-                String assemblyPath = Path.GetDirectoryName(System.Reflection.Assembly.GetAssembly(typeof(FocusControl)).Location) + "\\Type0014.md3";
+                String runtimeBits = IntPtr.Size == 8 ? "x64" : "x86";
+                String assemblyPath = Path.GetDirectoryName(System.Reflection.Assembly.GetAssembly(typeof(FocusControl)).Location) + "\\Nikon SDK\\" + runtimeBits + "\\Type0014.md3";
                 manager = new NikonManager(assemblyPath);
 
                 // Handle events, empty handlers will not throw an error on removal
