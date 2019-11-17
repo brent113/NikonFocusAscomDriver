@@ -8,20 +8,16 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Timers;
-using Nikon;
+using CameraControl;
+using CameraControl.Devices;
 using Timer = System.Timers.Timer;
 
 namespace NikonFocusControl
 {
     public class FocusControl : IDisposable
     {
-        // NOTE: For Type0003.md3, the drive state flag is located at index 30 - this might
-        //       not be the case for other MD3 files. Please double check your SDK documentation.
-        const int driveStateIndex = 38;
-
-        NikonDevice _device;
-        NikonManager manager;
-
+        ICameraDevice _device;
+        CameraDeviceManager DeviceManager = new CameraDeviceManager();
         Timer connectionTimer;
 
         public FocusControl()
@@ -39,18 +35,15 @@ namespace NikonFocusControl
 
             try
             {
-                // Create manager object - make sure you have the correct MD3 file for your Nikon DSLR (see https://sdk.nikonimaging.com/apply/)
-                if (manager != null) try { manager.Shutdown(); } catch { }
-                String runtimeBits = IntPtr.Size == 8 ? "x64" : "x86";
-                String assemblyPath = Path.GetDirectoryName(System.Reflection.Assembly.GetAssembly(typeof(FocusControl)).Location) + "\\Nikon SDK\\" + runtimeBits + "\\Type0014.md3";
-                manager = new NikonManager(assemblyPath);
+                // Create manager object
+                DeviceManager.ConnectToCamera();
 
                 // Handle events, empty handlers will not throw an error on removal
-                manager.DeviceAdded -= Manager_DeviceAdded;
-                manager.DeviceAdded -= Manager_DeviceAddedNoEvent;
-                manager.DeviceRemoved -= Manager_DeviceRemoved;
-                manager.DeviceAdded += Manager_DeviceAdded;
-                manager.DeviceRemoved += Manager_DeviceRemoved;
+                DeviceManager.CameraConnected -= Manager_DeviceAdded;
+                DeviceManager.CameraConnected -= Manager_DeviceAddedNoEvent;
+                DeviceManager.CameraDisconnected -= Manager_DeviceRemoved;
+                DeviceManager.CameraConnected += Manager_DeviceAdded;
+                DeviceManager.CameraDisconnected += Manager_DeviceRemoved;
             }
             catch
             {
@@ -459,15 +452,15 @@ namespace NikonFocusControl
         }
         #endregion
 
-        private void Manager_DeviceAdded(NikonManager sender, NikonDevice device)
+        private void Manager_DeviceAdded(ICameraDevice cameraDevice)
         {
-            if (_device == null)
+            if (cameraDevice == null)
             {
                 // Stop conection timmer, successfully connected;
                 connectionTimer.Enabled = false;
 
                 // Save device
-                _device = device;
+                _device = cameraDevice;
 
                 // Signal that we got a device
                 Connected = true;
@@ -482,15 +475,15 @@ namespace NikonFocusControl
         }
 
 
-        private void Manager_DeviceAddedNoEvent(NikonManager sender, NikonDevice device)
+        private void Manager_DeviceAddedNoEvent(ICameraDevice cameraDevice)
         {
-            if (_device == null)
+            if (cameraDevice == null)
             {
                 // Stop conection timmer, successfully connected;
                 connectionTimer.Enabled = false;
 
                 // Save device
-                _device = device;
+                _device = cameraDevice;
 
                 // Signal that we got a device
                 Connected = true;
@@ -504,7 +497,7 @@ namespace NikonFocusControl
             }
         }
 
-        private void Manager_DeviceRemoved(NikonManager sender, NikonDevice device)
+        private void Manager_DeviceRemoved(ICameraDevice cameraDevice)
         {
             DisconnectAttemptReconnect();
 
