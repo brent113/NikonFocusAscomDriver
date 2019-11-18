@@ -18,7 +18,10 @@ namespace NikonFocusControl
 {
     public class FocusControl : IDisposable
     {
-        NikonBase CameraDevice;
+        public const int MAX_STEP = 32768;
+        public const int MIN_STEP = -32768;
+
+        ICameraDevice CameraDevice;
         CameraDeviceManager DeviceManager = new CameraDeviceManager();
         Timer connectionTimer;
 
@@ -37,15 +40,15 @@ namespace NikonFocusControl
 
             try
             {
-                // Create manager object
-                DeviceManager.ConnectToCamera();
-
                 // Handle events, empty handlers will not throw an error on removal
                 DeviceManager.CameraConnected -= Manager_DeviceAdded;
                 DeviceManager.CameraConnected -= Manager_DeviceAddedNoEvent;
                 DeviceManager.CameraDisconnected -= Manager_DeviceRemoved;
                 DeviceManager.CameraConnected += Manager_DeviceAdded;
                 DeviceManager.CameraDisconnected += Manager_DeviceRemoved;
+
+                DeviceManager.DetectWebcams = false;
+                DeviceManager.ConnectToCamera();
             }
             catch
             {
@@ -72,22 +75,21 @@ namespace NikonFocusControl
 
                     try
                     {
-                        // Create manager object
-                        DeviceManager.ConnectToCamera();
-
                         // Handle events, empty handlers will not throw an error on removal
                         DeviceManager.CameraConnected -= Manager_DeviceAdded;
                         DeviceManager.CameraConnected -= Manager_DeviceAddedNoEvent;
                         DeviceManager.CameraDisconnected -= Manager_DeviceRemoved;
                         DeviceManager.CameraConnected += Manager_DeviceAdded;
+                        DeviceManager.CameraDisconnected += Manager_DeviceRemoved;
+
+                        DeviceManager.DetectWebcams = false;
+                        DeviceManager.ConnectToCamera();
                     }
                     catch
                     {
                         //wait?.Set();
                         throw;
                     }
-
-                    DeviceManager.CameraDisconnected += Manager_DeviceRemoved;
                 });
 
                 waitTimedOut = true;
@@ -117,93 +119,24 @@ namespace NikonFocusControl
         {
             try
             {
-                DeviceManager.DisconnectCamera(CameraDevice);
+                if (CameraDevice != null) DeviceManager.DisconnectCamera(CameraDevice);
             }
             catch { }
 
             CameraDevice = null;
-            DeviceManager = null;
+            DeviceManager.CloseAll();
             IsMoving = false;
             Connected = false;
 
             if (!disposedValue)
                 DeviceDisconnected?.Invoke(this, EventArgs.Empty);
-        }
-
-        public void DisconnectAttemptReconnect()
-        {
-
-            try
-            {
-                DeviceManager.DisconnectCamera(CameraDevice);
-            }
-            catch { }
-
-            CameraDevice = null;
-            IsMoving = false;
-            Connected = false;
-
-            if (!disposedValue)
-                DeviceDisconnected?.Invoke(this, EventArgs.Empty);
-        }
-
-        NikonRange driveStep = null;
-        public NikonRange DriveStep
-        {
-            get
-            {
-                if (driveStep == null)
-                {
-                    bool tempConnected = Connected; // If not connected, connect and then disconnect
-                    try
-                    {
-                        if (!tempConnected)
-                            ConnectBlocking();
-                    }
-                    catch
-                    {
-                        throw;
-                    }
-
-                    CameraDevice.GetCapability(CapabilityEnum.)
-                    driveStep = GetRange(eNkMAIDCapability.kNkMAIDCapability_MFDriveStep);
-                    if (driveStep == null) throw new NullReferenceException("Unable to read Drive Step from device");
-
-                    if (!tempConnected)
-                        Disconnect();
-                }
-                return driveStep;
-            }
-            set
-            {
-                if (!Connected)
-                    throw new DeviceDisconnectedException("Must be connected to device to set DriveStep");
-
-                driveStep = value;
-            }
-        }
-
-        public int StepSize
-        {
-            get
-            {
-                return (int)DriveStep.Value;
-            }
-            private set
-            {
-                if (value < FocusStepMin || value > FocusStepMax) throw new ArgumentOutOfRangeException("Step size must be between min and max.");
-                DriveStep.Value = (double)value;
-
-                // Must be in LiveView, send right before in Move
-                //SetRange(eNkMAIDCapability.kNkMAIDCapability_MFDriveStep, driveStep);
-            }
         }
 
         public int FocusStepMin
         {
             get
             {
-                return (int)DriveStep.Min;
+                return MIN_STEP;
             }
         }
 
@@ -211,7 +144,7 @@ namespace NikonFocusControl
         {
             get
             {
-                return (int)DriveStep.Max;
+                return MAX_STEP;
             }
         }
 
@@ -227,18 +160,10 @@ namespace NikonFocusControl
             if (steps == 0)
                 return;
 
-            eNkMAIDMFDrive dir = steps < 0 ? eNkMAIDMFDrive.kNkMAIDMFDrive_InfinityToClosest : eNkMAIDMFDrive.kNkMAIDMFDrive_ClosestToInfinity;
-
-            StepSize = Math.Abs(steps);
-
             LiveViewEnabled = true;
-            SetRange(eNkMAIDCapability.kNkMAIDCapability_MFDriveStep, DriveStep);
-            //Task.Run(() => DriveManualFocus(dir)); // causes a not supported error
-            DriveManualFocus(dir);
-
+            CameraDevice.Focus(steps);
             LiveViewEnabled = false;
 
-            //Thread.Sleep(3000);
         }
 
         public void ConnectAndMove(int steps)
@@ -262,88 +187,12 @@ namespace NikonFocusControl
 
         public bool Connected { get; private set; }
 
-        #region SDK Device Busy Wrappers
-        private NikonRange GetRange(eNkMAIDCapability cap)
-        {
-            NikonRange range = null;
-
-            if (!Connected) return range;
-
-            bool deviceBusy;
-            int attempts = 0;
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            do
-            {
-                try
-                {
-                    deviceBusy = false;
-                    attempts++;
-
-                    range = CameraDevice.GetRange(cap);
-                }
-                catch (NikonException ex)
-                {
-                    deviceBusy = ex.ErrorCode == eNkMAIDResult.kNkMAIDResult_DeviceBusy;
-
-                    if (!deviceBusy)
-                        throw;
-
-                    if (stopwatch.ElapsedMilliseconds > 5000)
-                        throw new DeviceTimedOutException("Device busy, command timed out");
-
-                    // Exponential delay
-                    System.Threading.Thread.Sleep(50 * attempts);
-                }
-            }
-            while (deviceBusy);
-
-            return range;
-        }
-
-        private void SetRange(eNkMAIDCapability cap, NikonRange value)
-        {
-            if (!Connected) return;
-
-            bool deviceBusy;
-            int attempts = 0;
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            do
-            {
-                try
-                {
-                    deviceBusy = false;
-                    attempts++;
-
-                    CameraDevice.SetRange(cap, value);
-                }
-                catch (NikonException e)
-                {
-                    deviceBusy = e.ErrorCode == eNkMAIDResult.kNkMAIDResult_DeviceBusy;
-
-                    if (!deviceBusy)
-                    {
-                        Disconnect();
-                        throw;
-                    }
-
-                    if (stopwatch.ElapsedMilliseconds > 5000)
-                    {
-                        DeviceTimedOutDisconnection();
-                        return;
-                    }
-
-                    // Exponential delay
-                    System.Threading.Thread.Sleep(50 * attempts);
-                }
-            }
-            while (deviceBusy);
-        }
-
+        private bool _LiveViewEnabled;
         private bool LiveViewEnabled
         {
             get
             {
-                return CameraDevice.LiveViewOn;
+                return _LiveViewEnabled;
             }
             set
             {
@@ -358,10 +207,15 @@ namespace NikonFocusControl
                         try
                         {
                             if (value)
+                            {
                                 CameraDevice.StartLiveView();
+                            }
                             else
+                            {
                                 CameraDevice.StopLiveView();
+                            }
 
+                            _LiveViewEnabled = value;
                             retryCount = DONE;
                         }
                         catch (DeviceException exception)
@@ -381,72 +235,17 @@ namespace NikonFocusControl
             }
         }
 
-        private void DriveManualFocus(eNkMAIDMFDrive direction)
-        {
-
-
-            NikonLiveViewImage image = null;
-            IsMoving = true;
-
-            if (!Connected) return;
-
-            bool deviceBusy;
-            int attempts = 0;
-            Stopwatch stopwatch = Stopwatch.StartNew();
-            do
-            {
-
-                try
-                {
-                    deviceBusy = false;
-                    attempts++;
-
-                    // Start driving the manual focus motor
-                    CameraDevice.SetUnsigned(eNkMAIDCapability.kNkMAIDCapability_MFDrive, (uint)direction);
-
-                    // Alt wait:
-                    image = CameraDevice.GetLiveViewImage(); // takes approx the time to move -100ms
-                    image = CameraDevice.GetLiveViewImage();
-                    System.Threading.Thread.Sleep(100);
-                }
-                catch (NikonException e)
-                {
-                    deviceBusy = e.ErrorCode == eNkMAIDResult.kNkMAIDResult_DeviceBusy;
-
-                    if (!deviceBusy)
-                    {
-                        Disconnect();
-                        throw;
-                    }
-
-                    if (stopwatch.ElapsedMilliseconds > 5000)
-                    {
-                        DeviceTimedOutDisconnection();
-                        return;
-                    }
-
-                    // This call acts kinda like a block call, sort of. Not completely
-                    image = CameraDevice.GetLiveViewImage();
-                    image = CameraDevice.GetLiveViewImage();
-
-                    // Exponential delay
-                    System.Threading.Thread.Sleep(50 * attempts);
-                }
-            }
-            while (deviceBusy);
-
-            IsMoving = false;
-        }
-
         private void DeviceTimedOutDisconnection()
         {
             Disconnect();
         }
-        #endregion
 
         private void Manager_DeviceAdded(ICameraDevice cameraDevice)
         {
-            if (cameraDevice == null)
+            // Ignore virtual camera. Maybe add Canon later/
+            if (cameraDevice.Manufacturer != "Nikon Corporation") return;
+
+            if (CameraDevice == null)
             {
                 // Stop conection timmer, successfully connected;
                 connectionTimer.Enabled = false;
@@ -466,10 +265,9 @@ namespace NikonFocusControl
             }
         }
 
-
-        private void Manager_DeviceAddedNoEvent(Nikon cameraDevice)
+        private void Manager_DeviceAddedNoEvent(ICameraDevice cameraDevice)
         {
-            if (cameraDevice == null)
+            if (CameraDevice == null)
             {
                 // Stop conection timmer, successfully connected;
                 connectionTimer.Enabled = false;
@@ -491,11 +289,17 @@ namespace NikonFocusControl
 
         private void Manager_DeviceRemoved(ICameraDevice cameraDevice)
         {
-            DisconnectAttemptReconnect();
+            if (CameraDevice != cameraDevice) return;
+
+            IsMoving = false;
+            Connected = false;
+
+            if (!disposedValue)
+                DeviceDisconnected?.Invoke(this, EventArgs.Empty);
 
             // Signal wait release
             waitTimedOut = false;
-            wait?.Set();
+                wait?.Set();
         }
 
         public event EventHandler DeviceConnected;
@@ -518,7 +322,7 @@ namespace NikonFocusControl
                 // Free unmanaged resources (unmanaged objects) and override a finalizer below.
                 // Set large fields to null.
                 CameraDevice = null;
-                manager = null;
+                DeviceManager = null;
             }
         }
 
