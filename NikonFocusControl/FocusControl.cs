@@ -160,10 +160,15 @@ namespace NikonFocusControl
             if (steps == 0)
                 return;
 
-            LiveViewEnabled = true;
-            CameraDevice.Focus(steps);
-            LiveViewEnabled = false;
+            LiveViewData image;
 
+            LiveViewEnabled = true; Thread.Sleep(100);
+            image = CameraDevice.GetLiveViewImage(); Thread.Sleep(100);
+            CameraDevice.GetProhibitionCondition(OperationEnum.ManualFocus);
+            CameraDevice.Focus(steps); Thread.Sleep(100);
+            image = CameraDevice.GetLiveViewImage(); Thread.Sleep(100);
+            image = CameraDevice.GetLiveViewImage(); Thread.Sleep(100);
+            LiveViewEnabled = false; Thread.Sleep(100);
         }
 
         public void ConnectAndMove(int steps)
@@ -198,40 +203,37 @@ namespace NikonFocusControl
             {
                 if (!Connected) return;
 
-                if (value)
+                const int DONE = 10;
+                int retryCount = 0;
+                do
                 {
-                    const int DONE = 10;
-                    int retryCount = 0;
-                    do
+                    try
                     {
-                        try
+                        if (value)
                         {
-                            if (value)
-                            {
-                                CameraDevice.StartLiveView();
-                            }
-                            else
-                            {
-                                CameraDevice.StopLiveView();
-                            }
+                            CameraDevice.StartLiveView();
+                        }
+                        else
+                        {
+                            CameraDevice.StopLiveView();
+                        }
 
-                            _LiveViewEnabled = value;
-                            retryCount = DONE;
-                        }
-                        catch (DeviceException exception)
+                        _LiveViewEnabled = value;
+                        retryCount = DONE;
+                    }
+                    catch (DeviceException exception)
+                    {
+                        if (exception.ErrorCode == ErrorCodes.MTP_Device_Busy || exception.ErrorCode == ErrorCodes.ERROR_BUSY)
                         {
-                            if (exception.ErrorCode == ErrorCodes.MTP_Device_Busy || exception.ErrorCode == ErrorCodes.ERROR_BUSY)
-                            {
-                                Thread.Sleep(100);
-                                retryCount++;
-                            }
-                            else
-                            {
-                                throw exception;
-                            }
+                            Thread.Sleep(100);
+                            retryCount++;
                         }
-                    } while (retryCount < DONE);
-                }
+                        else
+                        {
+                            throw exception;
+                        }
+                    }
+                } while (retryCount < DONE);
             }
         }
 
@@ -299,7 +301,7 @@ namespace NikonFocusControl
 
             // Signal wait release
             waitTimedOut = false;
-                wait?.Set();
+            wait?.Set();
         }
 
         public event EventHandler DeviceConnected;
