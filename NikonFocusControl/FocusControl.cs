@@ -105,6 +105,7 @@ namespace NikonFocusControl
             {
                 throw exception;
             }
+            Thread.Sleep(500);
         }
 
         private void ConnectionTimerTimedOut(object sender, ElapsedEventArgs e)
@@ -197,7 +198,6 @@ namespace NikonFocusControl
                 if (!Connected)
                     ConnectBlocking();
 
-                Thread.Sleep(500);
                 Move(steps);
             }
             catch (Exception exception)
