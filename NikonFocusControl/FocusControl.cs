@@ -21,7 +21,7 @@ namespace NikonFocusControl
         public const int MAX_STEP = 32768;
         public const int MIN_STEP = -32768;
 
-        ICameraDevice CameraDevice;
+        NikonBase CameraDevice;
         CameraDeviceManager DeviceManager = new CameraDeviceManager();
         Timer connectionTimer;
 
@@ -48,11 +48,12 @@ namespace NikonFocusControl
                 DeviceManager.CameraDisconnected += Manager_DeviceRemoved;
 
                 DeviceManager.DetectWebcams = false;
+                DeviceManager.StartInNewThread = true;
                 DeviceManager.ConnectToCamera();
             }
-            catch
+            catch (Exception exception)
             {
-                throw;
+                throw exception;
             }
         }
 
@@ -85,10 +86,9 @@ namespace NikonFocusControl
                         DeviceManager.DetectWebcams = false;
                         DeviceManager.ConnectToCamera();
                     }
-                    catch
+                    catch (Exception exception)
                     {
-                        //wait?.Set();
-                        throw;
+                        throw exception;
                     }
                 });
 
@@ -103,9 +103,9 @@ namespace NikonFocusControl
 
                 if (waitTimedOut) Connected = false;
             }
-            catch
+            catch (Exception exception)
             {
-                throw;
+                throw exception;
             }
         }
 
@@ -160,15 +160,40 @@ namespace NikonFocusControl
             if (steps == 0)
                 return;
 
-            LiveViewData image;
+            int retryCount = 5;
+            do
+            {
+                try
+                {
+                    LiveViewEnabled = true;
+                    CameraDevice.DeviceReady();
+                    CameraDevice.Focus(steps);
+                    CameraDevice.DeviceReady();
+                    break;
+                }
+                catch (DeviceException exception)
+                {
+                    if (exception.ErrorCode == ErrorCodes.MTP_Device_Busy || exception.ErrorCode == ErrorCodes.ERROR_BUSY)
+                    {
+                        retryCount--;
+                        CameraDevice.DeviceReady();
+                    }
+                    else
+                    {
+                        throw exception;
+                    }
+                }
+                catch (Exception exception)
+                {
+                    throw exception;
+                }
+            } while (retryCount > 0);
 
-            LiveViewEnabled = true; Thread.Sleep(100);
-            image = CameraDevice.GetLiveViewImage(); Thread.Sleep(100);
-            CameraDevice.GetProhibitionCondition(OperationEnum.ManualFocus);
-            CameraDevice.Focus(steps); Thread.Sleep(100);
-            image = CameraDevice.GetLiveViewImage(); Thread.Sleep(100);
-            image = CameraDevice.GetLiveViewImage(); Thread.Sleep(100);
-            LiveViewEnabled = false; Thread.Sleep(100);
+            try
+            {
+                LiveViewEnabled = false;
+            }
+            catch { }
         }
 
         public void ConnectAndMove(int steps)
@@ -180,9 +205,9 @@ namespace NikonFocusControl
 
                 Move(steps);
             }
-            catch
+            catch (Exception exception)
             {
-                throw;
+                throw exception;
             }
             finally
             {
@@ -201,39 +226,42 @@ namespace NikonFocusControl
             }
             set
             {
-                if (!Connected) return;
+                if (!Connected || value == LiveViewEnabled) return;
 
-                const int DONE = 10;
-                int retryCount = 0;
+                int retryCount = 5;
                 do
                 {
                     try
                     {
                         if (value)
                         {
+                            CameraDevice.DeviceReady();
                             CameraDevice.StartLiveView();
+                            CameraDevice.DeviceReady();
                         }
                         else
                         {
+                            CameraDevice.DeviceReady();
                             CameraDevice.StopLiveView();
+                            CameraDevice.DeviceReady();
                         }
 
                         _LiveViewEnabled = value;
-                        retryCount = DONE;
+                        break;
                     }
                     catch (DeviceException exception)
                     {
                         if (exception.ErrorCode == ErrorCodes.MTP_Device_Busy || exception.ErrorCode == ErrorCodes.ERROR_BUSY)
                         {
-                            Thread.Sleep(100);
-                            retryCount++;
+                            retryCount--;
+                            CameraDevice.DeviceReady();
                         }
                         else
                         {
                             throw exception;
                         }
                     }
-                } while (retryCount < DONE);
+                } while (retryCount > 0);
             }
         }
 
@@ -253,7 +281,7 @@ namespace NikonFocusControl
                 connectionTimer.Enabled = false;
 
                 // Save device
-                CameraDevice = cameraDevice;
+                CameraDevice = (NikonBase)cameraDevice;
 
                 // Signal that we got a device
                 Connected = true;
@@ -275,7 +303,7 @@ namespace NikonFocusControl
                 connectionTimer.Enabled = false;
 
                 // Save device
-                CameraDevice = cameraDevice;
+                CameraDevice = (NikonBase)cameraDevice;
 
                 // Signal that we got a device
                 Connected = true;
@@ -291,7 +319,7 @@ namespace NikonFocusControl
 
         private void Manager_DeviceRemoved(ICameraDevice cameraDevice)
         {
-            if (CameraDevice != cameraDevice) return;
+            if (CameraDevice != (NikonBase)cameraDevice) return;
 
             IsMoving = false;
             Connected = false;

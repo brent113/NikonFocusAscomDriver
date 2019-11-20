@@ -76,7 +76,14 @@ namespace TestApp
 
         private void BtnMoveDisc_Click(object sender, EventArgs e)
         {
-            fc.ConnectAndMove((int)numericUpDown1.Value);
+            try
+            {
+                fc.ConnectAndMove((int)numericUpDown1.Value);
+            }
+            catch (Exception exception)
+            {
+                //throw exception;
+            }
         }
 
         private void BtnConnect_Click(object sender, EventArgs e)
