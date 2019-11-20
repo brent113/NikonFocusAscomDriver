@@ -167,11 +167,8 @@ namespace NikonFocusControl
                     if (exception.ErrorCode == ErrorCodes.MTP_Device_Busy || exception.ErrorCode == ErrorCodes.ERROR_BUSY)
                     {
                         retryCount--;
-                        if (retryCount < 3)
-                        {
-                            Disconnect();
-                            ConnectBlocking();
-                        }
+                        Disconnect();
+                        ConnectBlocking();
                     }
                     else
                     {
@@ -247,11 +244,8 @@ namespace NikonFocusControl
                         if (exception.ErrorCode == ErrorCodes.MTP_Device_Busy || exception.ErrorCode == ErrorCodes.ERROR_BUSY)
                         {
                             retryCount--;
-                            if (retryCount < 3)
-                            {
-                                Disconnect();
-                                ConnectBlocking();
-                            }
+                            Disconnect();
+                            ConnectBlocking();
                         }
                         else
                         {
