@@ -35,7 +35,6 @@ using System.IO;
 using System.Linq;
 using System.Runtime.ExceptionServices;
 using System.Threading;
-using CameraControl.Devices.Canon;
 using CameraControl.Devices.Classes;
 using CameraControl.Devices.Custom;
 using CameraControl.Devices.Nikon;
@@ -44,7 +43,6 @@ using CameraControl.Devices.TransferProtocol;
 using CameraControl.Devices.TransferProtocol.DDServer;
 using CameraControl.Devices.TransferProtocol.PtpIp;
 using CameraControl.Devices.Wifi;
-using Canon.Eos.Framework;
 using PortableDeviceLib;
 using WIA;
 using Accord.Video.DirectShow;
@@ -60,7 +58,6 @@ namespace CameraControl.Devices
         private const int AppMinorVersionNumber = 0;
         private bool _connectionInProgress = false;
         private DeviceDescriptorEnumerator _deviceEnumerator;
-        private EosFramework _framework;
         private object _locker = new object();
         private List<DeviceDescription> _deviceDescriptions = new List<DeviceDescription>();
 
@@ -267,39 +264,6 @@ namespace CameraControl.Devices
             }
         }
 
-        private void InitCanon()
-        {
-            try
-            {
-                if (_framework == null)
-                {
-                    _framework = new EosFramework();
-                    _framework.CameraAdded += _framework_CameraAdded;
-                }
-                AddCanonCameras();
-            }
-            catch (Exception exception)
-            {
-                Log.Error("Unable init canon driver", exception);
-                /* Give specific guidance if the error is a missing DLL */
-                if ((exception.InnerException != null) && (exception.InnerException.Message != null) && (exception.InnerException.Message.Contains("EDSDK.dll")))
-                {
-                    Console.WriteLine("\n**CRITICAL ERROR**\n\nCanon EOS camera library, EDSDK.dll is missing\nInstall it after downloading from Canon's site\n");
-                }
-            }
-        }
-
-        private void _framework_CameraAdded(object sender, EventArgs e)
-        {
-            AddCanonCameras();
-        }
-
-        public IEnumerable<EosCamera> GetEosCameras()
-        {
-            using (EosCameraCollection cameras = _framework.GetCameraCollection())
-                return cameras.ToArray();
-        }
-
         private void AddWebcameras()
         {
             try
@@ -353,38 +317,7 @@ namespace CameraControl.Devices
             }
 
         }
-
-        private void AddCanonCameras()
-        {
-            lock (_locker)
-            {
-                foreach (EosCamera eosCamera in GetEosCameras())
-                {
-                    bool shouldbeadded =
-                        ConnectedDevices.OfType<CanonSDKBase>().All(camera => camera.PortName != eosCamera.PortName);
-
-                    if (shouldbeadded)
-                    {
-                        Log.Debug("New canon camera found !");
-                        CanonSDKBase camera = new CanonSDKBase();
-                        Log.Debug("Pas 1");
-                        DeviceDescriptor descriptor = new DeviceDescriptor {EosCamera = eosCamera};
-                        descriptor.CameraDevice = camera;
-                        Log.Debug("Pas 2");
-                        camera.Init(eosCamera);
-                        Log.Debug("Pas 3");
-                        ConnectedDevices.Add(camera);
-                        Log.Debug("Pas 4");
-                        _deviceEnumerator.Add(descriptor);
-                        Log.Debug("Pas 5");
-                        NewCameraConnected(camera);
-                        Log.Debug("New canon camera found done!");
-                    }
-                }
-                //Thread.Sleep(2500);
-            }
-        }
-
+        
         private ICameraDevice GetWiaIDevice(IDeviceInfo devInfo)
         {
             // if camera already is connected do nothing
@@ -414,10 +347,6 @@ namespace CameraControl.Devices
             if (e.StillImageDevice != null)
             {
                 DisconnectCamera(e.StillImageDevice);
-            }
-            if (e.EosCamera != null)
-            {
-                DisconnectCamera(e.EosCamera);
             }
             OnCameraDisconnected((ICameraDevice) sender);
         }
@@ -786,24 +715,6 @@ namespace CameraControl.Devices
             RemoveDisconnected();
         }
 
-        private void DisconnectCamera(EosCamera device)
-        {
-            DeviceDescriptor descriptor = _deviceEnumerator.GetByEosCamera(device);
-            if (descriptor != null)
-            {
-                descriptor.CameraDevice.PhotoCaptured -= cameraDevice_PhotoCaptured;
-                descriptor.CameraDevice.CameraDisconnected -= cameraDevice_CameraDisconnected;
-                StaticHelper.Instance.SystemMessage = "Camera disconnected :" + descriptor.CameraDevice.DeviceName;
-                Log.Debug("===========Camera disconnected==============");
-                Log.Debug("Name :" + descriptor.CameraDevice.DeviceName);
-                ConnectedDevices.Remove(descriptor.CameraDevice);
-                descriptor.CameraDevice.Close();
-                _deviceEnumerator.Remove(descriptor);
-                _deviceEnumerator.RemoveDisconnected();
-            }
-            RemoveDisconnected();
-        }
-
         private void RemoveDisconnected()
         {
             List<ICameraDevice> removedCameras = ConnectedDevices.Where(device => !device.IsConnected).ToList();
@@ -851,8 +762,6 @@ namespace CameraControl.Devices
 
         public bool ConnectToCamera()
         {
-            if (UseExperimentalDrivers)
-                InitCanon();
             return ConnectToCamera(true);
         }
 
@@ -884,9 +793,6 @@ namespace CameraControl.Devices
             {
                 Log.Debug("Native drivers are disabled !!!!");
             }
-            // if canon camera is connected don't use wia driver
-            if (UseExperimentalDrivers && _framework != null && _framework.GetCameraCollection().Count > 0)
-                return true;
 
             if (!LoadWiaDevices)
                 return true;

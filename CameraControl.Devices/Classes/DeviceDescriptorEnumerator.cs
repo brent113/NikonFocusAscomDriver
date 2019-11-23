@@ -30,7 +30,6 @@
 
 using System.Collections.Generic;
 using System.Linq;
-using Canon.Eos.Framework;
 
 #endregion
 
@@ -58,11 +57,6 @@ namespace CameraControl.Devices.Classes
         public DeviceDescriptor GetByWpdId(string id)
         {
             return Devices.FirstOrDefault(deviceDescriptor => deviceDescriptor.WpdId == id);
-        }
-
-        public DeviceDescriptor GetByEosCamera(EosCamera id)
-        {
-            return Devices.FirstOrDefault(deviceDescriptor => deviceDescriptor.EosCamera == id);
         }
 
         public void RemoveDisconnected()
