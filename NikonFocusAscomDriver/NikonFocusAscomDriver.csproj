@@ -195,8 +195,12 @@
     </PreBuildEvent>
   </PropertyGroup>
   <PropertyGroup>
-    <PostBuildEvent>C:\Windows\Microsoft.NET\Framework64\v4.0.30319\regasm  $(TargetPath) /tlb /codebase
-C:\Windows\Microsoft.NET\Framework\v4.0.30319\regasm  $(TargetPath) /tlb /codebase
+    <PostBuildEvent>if not $(PlatformName) == x86 (
+  C:\Windows\Microsoft.NET\Framework64\v4.0.30319\regasm  $(TargetPath) /tlb /codebase
+)
+if not $(PlatformName) == x64 (
+  C:\Windows\Microsoft.NET\Framework\v4.0.30319\regasm  $(TargetPath) /tlb /codebase
+)
 
 if $(ConfigurationName) == Release (
   "C:\Program Files (x86)\Inno Setup 5\Compil32.exe" /cc "$(ProjectDir)bin\Nikon Focuser Setup.iss"
